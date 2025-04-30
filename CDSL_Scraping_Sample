@@ -1,0 +1,96 @@
+import os
+import time
+from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+import pikepdf  # To validate the PDF file
+
+# === Set download directory ===
+download_directory = r"C:\Users\Yokeshwari.7183\Desktop\CDSL Django\PDF_Convertion\Input File"
+os.makedirs(download_directory, exist_ok=True)
+
+# === Configure Chrome options ===
+chrome_options = Options()
+chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--window-size=1920x1080")
+chrome_options.add_experimental_option("prefs", {
+    "download.default_directory": download_directory,
+    "download.prompt_for_download": False,
+    "download.directory_upgrade": True,
+    "safebrowsing.enabled": True
+})
+
+# === Initialize WebDriver ===
+service = Service(ChromeDriverManager().install())
+driver = webdriver.Chrome(service=service, options=chrome_options)
+
+try:
+    driver.maximize_window()
+    print("Navigating to CDSL website...")
+    driver.get("https://www.cdslindia.com/Publications/periodicstats.aspx")
+
+    # Wait and click on the PDF link/image
+    print("Waiting for PDF element to become clickable...")
+    pdf_click = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "(//li[@class='col-lg-12 col-md-12 col-sm-12 p-0'])[2]//img"))
+    )
+    pdf_click.click()
+
+    # Wait for the PDF to download
+    print("Waiting for PDF download to complete...")
+    timeout = 30
+    start_time = time.time()
+    downloaded_pdf_path = None
+
+    while time.time() - start_time < timeout:
+        pdf_files = sorted(
+            [os.path.join(download_directory, f) for f in os.listdir(download_directory) if f.endswith('.pdf')],
+            key=os.path.getctime,
+            reverse=True
+        )
+        if pdf_files:
+            candidate = pdf_files[0]
+            initial_size = os.path.getsize(candidate)
+            time.sleep(2)
+            final_size = os.path.getsize(candidate)
+            if initial_size == final_size:
+                downloaded_pdf_path = candidate
+                break
+        time.sleep(1)
+
+    if not downloaded_pdf_path:
+        raise Exception("Download timed out or failed")
+
+    # Get current date
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    print(f"Current date: {current_date}")
+
+    # Define new PDF name and avoid overwriting
+    base_name = f"CDSL_Report_{current_date}"
+    new_pdf_name = f"{base_name}.pdf"
+    new_pdf_path = os.path.join(download_directory, new_pdf_name)
+    counter = 1
+    while os.path.exists(new_pdf_path):
+        new_pdf_name = f"{base_name}_{counter}.pdf"
+        new_pdf_path = os.path.join(download_directory, new_pdf_name)
+        counter += 1
+
+    # Validate the downloaded PDF
+    try:
+        with pikepdf.open(downloaded_pdf_path):
+            print("PDF is valid!")
+    except pikepdf.PdfError as e:
+        raise Exception(f"Error opening PDF: {e}")
+
+    # Rename the file
+    os.rename(downloaded_pdf_path, new_pdf_path)
+    print(f"File renamed to: {new_pdf_name}")
+
+finally:
+    driver.quit()
+    print("Browser closed.")
